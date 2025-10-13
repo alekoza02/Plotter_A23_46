@@ -9,27 +9,14 @@ The project is structured using Git submodules, so dependencies are automaticall
 1. Clone the repository with all submodules
 
     ```bash
-    git clone --recurse-submodules https://github.com/alekoza02/PLOTTER_A23_46.git 
-    cd Plotter_A23_46
+    git clone --recurse-submodules https://github.com/alekoza02/PLOTTER_A23_46.git && cd PLOTTER_A23_46
+    git submodule sync --recursive && git submodule update --init --recursive
     ```
     
     This will automatically clone `UI_TS1` inside `Plotter_A23_46` and `Renderer_D_30F6` inside `UI_TS1`,
     at the versions pinned by the project.
 
-2. Install Python packages
-
-    ```bash
-    cd UI_TS1/Renderer_D_30F6
-    pip install .
-
-    cd ..
-    pip install .
-
-    cd ../../
-    pip install .
-    ```
-
-3. Run the application
+2. Run the application
 
     ```bash
     python main.py
@@ -41,11 +28,8 @@ The project is structured using Git submodules, so dependencies are automaticall
 - When a new version of Rendering Engine or UI is released:
 
     ```bash
-    git submodule update --remote --recursive
+    git pull --recurse-submodules && git submodule update --init --recursive
     ```
-
-- Then re-run the pip install . commands to ensure all packages are installed correctly.
-
 
 # Notes
 
