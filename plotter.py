@@ -4,6 +4,7 @@ from time import perf_counter_ns
 import numpy as np
 import numpy.typing as npt
 
+DRAW_DEBUG = False
 
 class Canvas:
     def __init__(self):
@@ -21,6 +22,8 @@ class Canvas:
     def set_image_size(self, width, height):
         self.width = width
         self.height = height
+        self.plots_grid.global_width = width
+        self.plots_grid.global_height = height
         self.__set_aspect_ratio(self.width / self.height)
 
         self.plots_grid.set_grid_padding(min(self.width, self.height) / 100)
@@ -58,6 +61,8 @@ class Grid:
         self.IDs: set[str] = set()
         self.BBs: dict[str, list[int]] = {}
         self.plots: dict[str, Plot] = {}
+        self.global_width: int
+        self.global_height: int
 
     def set_grid_padding(self, grid_padding: float = 10):
         self.grid_padding = grid_padding
@@ -68,7 +73,7 @@ class Grid:
         BB_padding = [BB[0] + self.grid_padding, BB[1] + self.grid_padding, BB[2] - 2 * self.grid_padding, BB[3] - 2 * self.grid_padding]
 
         self.BBs[id] = BB_padding
-        self.plots[id] = Plot(id, BB_padding[0], BB_padding[1], BB_padding[2], BB_padding[3])
+        self.plots[id] = Plot(id, BB_padding[0], BB_padding[1], BB_padding[2], BB_padding[3], self.global_width, self.global_height)
 
     @property
     def batch(self):
@@ -77,17 +82,26 @@ class Grid:
 
 
 class Plot:
-    def __init__(self, id, x, y, width, height):
+    def __init__(self, id, x, y, width, height, global_width, global_height):
         self.id = id
 
         self.ticks_padding = [7, 7]
         self.ticks_font_size = [16, 16]
+
         self.plot_padding = 15
 
         self.target_bins_ticks = [8, 8]
 
-        self.data_BB_xywh_normalized: list[float] = [0.2, 0.2, 0.775, 0.65]
+        self.global_sizes = [global_width, global_height]
+        self.data_BB_xywh_normalized: list[float] = [0.2, 0.2, 0.75, 0.65]
         self.plot_BB_xywh_original = [x, y, width, height]
+
+        self.labels: list[Label] = [
+            Label(DynamicCoordinate("0px"), DynamicCoordinate("0px"), "X Label", 40, "cd", 0, 0, "#94b1ff"),
+            Label(DynamicCoordinate("0px"), DynamicCoordinate("0px"), "Y Label", 40, "cu", 0, 0, "#94b1ff", rotate=-90),
+            Label(DynamicCoordinate("0px"), DynamicCoordinate("0px"), "", 40, "cd", 0, 0, "#94b1ff", rotate=-90),
+            Label(DynamicCoordinate("0px"), DynamicCoordinate("0px"), "Title", 40, "cu", 0, 0, "#94b1ff")
+        ]
 
         self.update_coords_mapping()
 
@@ -106,6 +120,27 @@ class Plot:
             [self.plot_BB_xywh_padded[0] + self.data_BB_xywh[0] + self.data_BB_xywh[2], self.plot_BB_xywh_padded[1] + self.plot_BB_xywh_padded[3] - (self.data_BB_xywh[1])],
             [self.plot_BB_xywh_padded[0] + self.data_BB_xywh[0] + self.data_BB_xywh[2], self.plot_BB_xywh_padded[1] + self.plot_BB_xywh_padded[3] - (self.data_BB_xywh[1] + self.data_BB_xywh[3])],
         ]
+
+        # X label
+        self.labels[0].pos[0].set_new_dynamic_coordinate(f"{self.data_BB_xywh_normalized[0] + self.data_BB_xywh_normalized[2]/2}%w")
+        self.labels[0].pos[1].set_new_dynamic_coordinate(f"1%h")
+        
+        # Y label
+        self.labels[1].pos[0].set_new_dynamic_coordinate("0px")
+        self.labels[1].pos[1].set_new_dynamic_coordinate(f"{1 - self.data_BB_xywh_normalized[1] - self.data_BB_xywh_normalized[3]/2}%h")
+        
+        # 2Y label
+        self.labels[2].pos[0].set_new_dynamic_coordinate("1%w")
+        self.labels[2].pos[1].set_new_dynamic_coordinate(f"{1 - self.data_BB_xywh_normalized[1] - self.data_BB_xywh_normalized[3]/2}%h")
+        
+        # Title
+        self.labels[3].pos[0].set_new_dynamic_coordinate(f"{self.data_BB_xywh_normalized[0] + self.data_BB_xywh_normalized[2]/2}%w")
+        self.labels[3].pos[1].set_new_dynamic_coordinate(f"0px")
+
+        [label.pos[0].set_coord_database(self.plot_BB_xywh_padded[2], self.plot_BB_xywh_padded[3], self.global_sizes[0], self.global_sizes[1]) for label in self.labels]
+        [label.pos[1].set_coord_database(self.plot_BB_xywh_padded[2], self.plot_BB_xywh_padded[3], self.global_sizes[0], self.global_sizes[1]) for label in self.labels]
+        [label.pos[0].parser() for label in self.labels]
+        [label.pos[1].parser() for label in self.labels]
 
     def draw_debug_info(self):
         # Plot name
@@ -175,6 +210,65 @@ class Plot:
     def set_ticks_font_size(self, ticks_font_size):
         self.ticks_font_size = ticks_font_size
 
+    def set_x_label(self, text=None, font_size=None, x_padding=None, y_padding=None, color=None):
+        if text is not None:
+            self.labels[0].text = text
+        if font_size is not None:
+            self.labels[0].font_size = font_size
+        if x_padding is not None:
+            self.labels[0].h_padding = x_padding
+        if y_padding is not None:
+            self.labels[0].v_padding = y_padding
+        if color is not None:
+            self.labels[0].color = color
+
+    def set_y_label(self, text=None, font_size=None, x_padding=None, y_padding=None, color=None):
+        if text is not None:
+            self.labels[1].text = text
+        if font_size is not None:
+            self.labels[1].font_size = font_size
+        if x_padding is not None:
+            self.labels[1].h_padding = x_padding
+        if y_padding is not None:
+            self.labels[1].v_padding = y_padding
+        if color is not None:
+            self.labels[1].color = color
+
+    def set_2y_label(self, text=None, font_size=None, x_padding=None, y_padding=None, color=None):
+        if text is not None:
+            self.labels[2].text = text
+        if font_size is not None:
+            self.labels[2].font_size = font_size
+        if x_padding is not None:
+            self.labels[2].h_padding = x_padding
+        if y_padding is not None:
+            self.labels[2].v_padding = y_padding
+        if color is not None:
+            self.labels[2].color = color
+
+    def set_title(self, text=None, font_size=None, x_padding=None, y_padding=None, color=None):
+        if text is not None:
+            self.labels[3].text = text
+        if font_size is not None:
+            self.labels[3].font_size = font_size
+        if x_padding is not None:
+            self.labels[3].h_padding = x_padding
+        if y_padding is not None:
+            self.labels[3].v_padding = y_padding
+        if color is not None:
+            self.labels[3].color = color
+
+    def set_data_BB(self, x=None, y=None, w=None, h=None):
+        if x is not None:
+            self.data_BB_xywh_normalized[0] = x
+        if y is not None:
+            self.data_BB_xywh_normalized[1] = y
+        if w is not None:
+            self.data_BB_xywh_normalized[2] = w
+        if h is not None:
+            self.data_BB_xywh_normalized[3] = h
+        self.update_coords_mapping()
+
     def set_data_read_only(self, original_data):
         self.data_read_only = original_data.astype(np.float64)
         self.normalized_data = deepcopy(self.data_read_only)
@@ -200,7 +294,8 @@ class Plot:
 
     def draw_data(self):
 
-        self.draw_debug_info()
+        if DRAW_DEBUG:
+            self.draw_debug_info()
 
         for x, y in self.normalized_data:
             self.batch.add_circle(self.data_BB_verts[0][0] + x * (self.data_BB_xywh[2]), self.data_BB_verts[0][1] - y * (self.data_BB_xywh[3]), 5, "#94b1ff")
@@ -220,6 +315,10 @@ class Plot:
             elif channel == 1:
                 for label, coord in zip(ticks_labels, ticks_coords):
                     self.batch.add_text(label, self.data_BB_verts[0][0] - self.ticks_padding[0], self.data_BB_verts[0][1] - coord * (self.data_BB_xywh[3]), font_size=self.ticks_font_size[1], fill_color="#94b1ff", anchor="cr")
+
+        for label in self.labels:
+            self.batch.add_text(label.text, self.plot_BB_xywh_padded[0] + label.pos[0].get_numerical_coord(), self.plot_BB_xywh_padded[1] + label.pos[1].get_numerical_coord(), font_size=label.font_size, fill_color=label.color, anchor=label.anchor, rotate=label.rotate)
+
 
     def get_ticks(self, array, target_bins=8) -> np.ndarray:
         vmin = np.min(array)
@@ -289,7 +388,7 @@ class SVG_batch:
         points_str = " ".join([f"{i},{j}" for i, j in points])
         self.shapes.append(f'<polygon points="{points_str}" fill="{fill_color}"/>')
 
-    def add_text(self, text, x, y, font_size=24, fill_color="black", anchor="cc"):
+    def add_text(self, text, x, y, font_size=24, fill_color="black", anchor="cc", rotate=0):
 
         # For future implementations
         # X
@@ -319,8 +418,103 @@ class SVG_batch:
             case 'cr': # center-right
                 text_anchor = 'end'
                 dominant_baseline = 'middle'
+            case 'cd': # center-down
+                text_anchor = 'middle'
+                dominant_baseline = 'text-after-edge'
 
-        self.shapes.append(f'<text x="{x}" y="{y}" font-size="{font_size}" text-anchor="{text_anchor}" dominant-baseline="{dominant_baseline}" fill="{fill_color}">{text}</text>')
+        self.shapes.append(f'<text x="{x}" y="{y}" font-size="{font_size}" text-anchor="{text_anchor}" dominant-baseline="{dominant_baseline}" fill="{fill_color}" transform="rotate({rotate} {x} {y})">{text}</text>')
+
+
+class Label:
+    def __init__(self, 
+        x, y, text, font_size, anchor, h_padding, v_padding, color, rotate=0) -> None:
+        self.pos: list[DynamicCoordinate] = [x, y]
+        self.text = text
+        self.font_size = font_size
+        self.h_padding = h_padding
+        self.v_padding = v_padding
+        self.color = color
+        self.anchor = anchor
+        self.rotate = rotate
+
+
+class DynamicCoordinate:
+    def __init__(self, coord: str) -> None:
+        # %wtot ---> width screen
+        # %htot ---> height screen
+        # %w ---> width container
+        # %h ---> height container
+        # px ---> constant pixel amount
+        self.coord = coord
+        self.numerical_coord = 0
+        self.coord_parsed = {
+            "wtot" : 0,
+            "htot" : 0,
+            "w" : 0,
+            "h" : 0,
+            "px" : 0
+        }
+        self.coord_database = {
+            "w_container" : 1,
+            "h_container" : 1,
+            "w_screen" : 1,
+            "h_screen" : 1
+        }
+
+
+    def parser(self):
+
+        self.coord_parsed = {
+            "wtot" : 0,
+            "htot" : 0,
+            "w" : 0,
+            "h" : 0,
+            "px" : 0
+        }
+
+        instructions = self.coord.split()
+        for instruction in instructions:
+            if instruction.endswith("%wtot"):
+                self.coord_parsed["wtot"] += float(instruction[:-5])
+            if instruction.endswith("%htot"):
+                self.coord_parsed["htot"] += float(instruction[:-5])
+            if instruction.endswith("%w"):
+                self.coord_parsed["w"] += float(instruction[:-2])
+            if instruction.endswith("%h"):
+                self.coord_parsed["h"] += float(instruction[:-2])
+            if instruction.endswith("px"):
+                self.coord_parsed["px"] += float(instruction[:-2])
+            
+
+    def get_numerical_coord(self):
+        self.numerical_coord = 0
+        for type, value in self.coord_parsed.items():
+            if type == "w":
+                self.numerical_coord += value * self.coord_database["w_container"]
+            if type == "h":
+                self.numerical_coord += value * self.coord_database["h_container"]
+            if type == "wtot":
+                self.numerical_coord += value * self.coord_database["w_screen"]
+            if type == "htot":
+                self.numerical_coord += value * self.coord_database["h_screen"]
+            if type == "px":
+                self.numerical_coord += value
+        return self.numerical_coord
+
+
+    def set_coord_database(self, w_container=None, h_container=None, w_screen=None, h_screen=None):
+        if w_container is not None:
+            self.coord_database['w_container'] = w_container
+        if h_container is not None:
+            self.coord_database['h_container'] = h_container
+        if w_screen is not None:
+            self.coord_database['w_screen'] = w_screen
+        if h_screen is not None:
+            self.coord_database['h_screen'] = h_screen
+
+
+    def set_new_dynamic_coordinate(self, text):
+        self.coord = text
 
 
 if __name__ == "__main__":
@@ -334,15 +528,23 @@ if __name__ == "__main__":
     c.plots_grid.plots["main1"].set_ticks_bins([4, 4])
     c.plots_grid.plots["main1"].set_ticks_padding([10, 10])
     c.plots_grid.plots["main1"].set_ticks_font_size([16, 16])
+    c.plots_grid.plots["main1"].set_x_label(text="X [nm]", font_size=24)
+    c.plots_grid.plots["main1"].set_y_label(text="Y [nm]", font_size=24)
+    c.plots_grid.plots["main1"].set_title(text="Parabola", font_size=28)
     c.plots_grid.plots["main1"].set_data_read_only(np.array([[i, i**2] for i in range(21)]))
     c.plots_grid.plots["main1"].set_plot_padding(30)
+    c.plots_grid.plots["main1"].set_data_BB(0.3, 0.2, 0.65, 0.65)
 
     c.plots_grid.add_plot("main2", [c.width / 3, 0, 2 * c.width / 3, c.height / 3])
     c.plots_grid.plots["main2"].set_ticks_bins([6, 4])
     c.plots_grid.plots["main2"].set_ticks_padding([15, 10])
     c.plots_grid.plots["main2"].set_ticks_font_size([18, 18])
+    c.plots_grid.plots["main2"].set_x_label(text="X [nm]", font_size=24)
+    c.plots_grid.plots["main2"].set_y_label(text="Y [nm]", font_size=24)
+    c.plots_grid.plots["main2"].set_title(text="Cosine", font_size=28)
     c.plots_grid.plots["main2"].set_data_read_only(np.array([[i, np.sin(i / 3)] for i in range(51)]))
     c.plots_grid.plots["main2"].set_plot_padding(30)
+    c.plots_grid.plots["main2"].set_data_BB(0.15, 0.2, 0.8, 0.65)
 
     c.plots_grid.add_plot("main3", [0, c.height / 3, c.width, 2 * c.height / 3])
     c.plots_grid.plots["main3"].set_ticks_bins([8, 10])
@@ -350,5 +552,6 @@ if __name__ == "__main__":
     c.plots_grid.plots["main3"].set_ticks_font_size([24, 24])
     c.plots_grid.plots["main3"].set_data_read_only(np.array([[i, np.log(i + 0.1)] for i in range(21)]))
     c.plots_grid.plots["main3"].set_plot_padding(30)
+    c.plots_grid.plots["main3"].set_data_BB(0.125, 0.2, 0.85, 0.65)
 
     c.save_image()
